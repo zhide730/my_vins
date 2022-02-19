@@ -22,6 +22,12 @@ System::System(string sConfig_file_)
     {
         cerr << "ofs_pose is not open" << endl;
     }
+    ofs_time.open("./time_output.txt", fstream::out);
+    if(!ofs_time.is_open())
+    {
+        cerr << "ofs_time is not open" << endl;
+    }
+
     // thread thd_RunBackend(&System::process,this);
     // thd_RunBackend.detach();
     cout << "2 System() end" << endl;
@@ -30,9 +36,9 @@ System::System(string sConfig_file_)
 System::~System()
 {
     bStart_backend = false;
-    
+
     pangolin::QuitAll();
-    
+
     m_buf.lock();
     while (!feature_buf.empty())
         feature_buf.pop();
@@ -45,6 +51,7 @@ System::~System()
     m_estimator.unlock();
 
     ofs_pose.close();
+    ofs_time.close();
 }
 
 void System::PubImageData(double dStampSec, Mat &img)
@@ -165,9 +172,9 @@ void System::PubImageData(double dStampSec, Mat &img)
 		cv::imshow("IMAGE", show_img);
         cv::waitKey(1);
 	}
-#endif    
+#endif
     // cout << "5 PubImage" << endl;
-    
+
 }
 
 vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
@@ -184,7 +191,7 @@ vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
 
         if (!(imu_buf.back()->header > feature_buf.front()->header + estimator.td))
         {
-            cerr << "wait for imu, only should happen at the beginning sum_of_wait: " 
+            cerr << "wait for imu, only should happen at the beginning sum_of_wait: "
                 << sum_of_wait << endl;
             sum_of_wait++;
             return measurements;
@@ -211,7 +218,7 @@ vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
             cerr << "no imu between two image" << endl;
         }
         // cout << "1 getMeasurements img t: " << fixed << img_msg->header
-        //     << " imu begin: "<< IMUs.front()->header 
+        //     << " imu begin: "<< IMUs.front()->header
         //     << " end: " << IMUs.back()->header
         //     << endl;
         measurements.emplace_back(IMUs, img_msg);
@@ -219,7 +226,7 @@ vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
     return measurements;
 }
 
-void System::PubImuData(double dStampSec, const Eigen::Vector3d &vGyr, 
+void System::PubImuData(double dStampSec, const Eigen::Vector3d &vGyr,
     const Eigen::Vector3d &vAcc)
 {
     shared_ptr<IMU_MSG> imu_msg(new IMU_MSG());
@@ -238,7 +245,7 @@ void System::PubImuData(double dStampSec, const Eigen::Vector3d &vGyr,
     //     << " gyr: " << imu_msg->angular_velocity.transpose() << endl;
     m_buf.lock();
     imu_buf.push(imu_msg);
-    // cout << "1 PubImuData t: " << fixed << imu_msg->header 
+    // cout << "1 PubImuData t: " << fixed << imu_msg->header
     //     << " imu_buf size:" << imu_buf.size() << endl;
     m_buf.unlock();
     con.notify_one();
@@ -252,13 +259,13 @@ void System::ProcessBackEnd()
     {
         // cout << "1 process()" << endl;
         vector<pair<vector<ImuConstPtr>, ImgConstPtr>> measurements;
-        
+
         unique_lock<mutex> lk(m_buf);
         con.wait(lk, [&] {
             return (measurements = getMeasurements()).size() != 0;
         });
         if( measurements.size() > 1){
-        cout << "1 getMeasurements size: " << measurements.size() 
+        cout << "1 getMeasurements size: " << measurements.size()
             << " imu sizes: " << measurements[0].first.size()
             << " feature_buf size: " <<  feature_buf.size()
             << " imu_buf size: " << imu_buf.size() << endl;
@@ -310,12 +317,12 @@ void System::ProcessBackEnd()
                 }
             }
 
-            // cout << "processing vision data with stamp:" << img_msg->header 
+            // cout << "processing vision data with stamp:" << img_msg->header
             //     << " img_msg->points.size: "<< img_msg->points.size() << endl;
 
             // TicToc t_s;
             map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
-            for (unsigned int i = 0; i < img_msg->points.size(); i++) 
+            for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
                 int v = img_msg->id_of_point[i] + 0.5;
                 int feature_id = v / NUM_OF_CAM;
@@ -334,7 +341,7 @@ void System::ProcessBackEnd()
             }
             TicToc t_processImage;
             estimator.processImage(image, img_msg->header);
-            
+
             if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
             {
                 Vector3d p_wi;
@@ -344,7 +351,7 @@ void System::ProcessBackEnd()
                 vPath_to_draw.push_back(p_wi);
                 double dStamp = estimator.Headers[WINDOW_SIZE];
                 cout << "1 BackEnd processImage dt: " << fixed << t_processImage.toc() << " stamp: " <<  dStamp << " p_wi: " << p_wi.transpose() << endl;
-                ofs_pose << fixed << dStamp << " " << p_wi(0) << " " << p_wi(1) << " " << p_wi(2) << " " 
+                ofs_pose << fixed << dStamp << " " << p_wi(0) << " " << p_wi(1) << " " << p_wi(2) << " "
                          << q_wi.w() << " " << q_wi.x() << " " << q_wi.y() << " " << q_wi.z() << endl;
             }
         }
@@ -352,8 +359,8 @@ void System::ProcessBackEnd()
     }
 }
 
-void System::Draw() 
-{   
+void System::Draw()
+{
     // create pangolin window and plot the trajectory
     pangolin::CreateWindowAndBind("Trajectory Viewer", 1024, 768);
     glEnable(GL_DEPTH_TEST);
@@ -385,19 +392,19 @@ void System::Draw()
         glClearColor(0.75f, 0.75f, 0.75f, 0.75f);
         glColor3f(0, 0, 1);
         pangolin::glDrawAxis(3);
-         
+
         // draw poses
         glColor3f(0, 0, 0);
         glLineWidth(2);
         glBegin(GL_LINES);
         int nPath_size = vPath_to_draw.size();
         for(int i = 0; i < nPath_size-1; ++i)
-        {        
+        {
             glVertex3f(vPath_to_draw[i].x(), vPath_to_draw[i].y(), vPath_to_draw[i].z());
             glVertex3f(vPath_to_draw[i+1].x(), vPath_to_draw[i+1].y(), vPath_to_draw[i+1].z());
         }
         glEnd();
-        
+
         // points
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
         {
@@ -417,8 +424,8 @@ void System::Draw()
 }
 
 #ifdef __APPLE__
-void System::InitDrawGL() 
-{   
+void System::InitDrawGL()
+{
     // create pangolin window and plot the trajectory
     pangolin::CreateWindowAndBind("Trajectory Viewer", 1024, 768);
     glEnable(GL_DEPTH_TEST);
@@ -435,8 +442,8 @@ void System::InitDrawGL()
             .SetHandler(new pangolin::Handler3D(s_cam));
 }
 
-void System::DrawGLFrame() 
-{  
+void System::DrawGLFrame()
+{
 
     if (pangolin::ShouldQuit() == false)
     {
@@ -446,19 +453,19 @@ void System::DrawGLFrame()
         glClearColor(0.75f, 0.75f, 0.75f, 0.75f);
         glColor3f(0, 0, 1);
         pangolin::glDrawAxis(3);
-            
+
         // draw poses
         glColor3f(0, 0, 0);
         glLineWidth(2);
         glBegin(GL_LINES);
         int nPath_size = vPath_to_draw.size();
         for(int i = 0; i < nPath_size-1; ++i)
-        {        
+        {
             glVertex3f(vPath_to_draw[i].x(), vPath_to_draw[i].y(), vPath_to_draw[i].z());
             glVertex3f(vPath_to_draw[i+1].x(), vPath_to_draw[i+1].y(), vPath_to_draw[i+1].z());
         }
         glEnd();
-        
+
         // points
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
         {

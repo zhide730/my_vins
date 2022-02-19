@@ -391,6 +391,7 @@ void Problem::MakeHessian() {
 /*
  * Solve Hx = b, we can use PCG iterative method or use sparse Cholesky
  */
+/*
 void Problem::SolveLinearSystem() {
 
 
@@ -398,7 +399,7 @@ void Problem::SolveLinearSystem() {
         // PCG solver
         MatXX H = Hessian_;
         for (size_t i = 0; i < Hessian_.cols(); ++i) {
-            H(i, i) += currentLambda_;
+            H(i, i) += currentLambda_ * Hessian_(i, i);
         }
         // delta_x_ = PCGSolver(H, b_, H.rows() * 2);
         delta_x_ = H.ldlt().solve(b_);
@@ -436,7 +437,7 @@ void Problem::SolveLinearSystem() {
         }
 
         // TicToc t_linearsolver;
-        delta_x_pp =  H_pp_schur_.ldlt().solve(b_pp_schur_);//  SVec.asDiagonal() * svd.matrixV() * Ub;    
+        delta_x_pp =  H_pp_schur_.ldlt().solve(b_pp_schur_);//  SVec.asDiagonal() * svd.matrixV() * Ub;
         delta_x_.head(reserve_size) = delta_x_pp;
         // std::cout << " Linear Solver Time Cost: " << t_linearsolver.toc() << std::endl;
 
@@ -448,6 +449,76 @@ void Problem::SolveLinearSystem() {
 //        std::cout << "schur time cost: "<< t_Hmminv.toc()<<std::endl;
     }
 
+}
+*/
+
+void Problem::SolveLinearSystem() {
+    if (problemType_ == ProblemType::GENERIC_PROBLEM) {
+        // PCG solver
+        MatXX H = Hessian_;
+        // delta_x_ = PCGSolver(H, b_, H.rows() * 2);
+        delta_x_ = H.ldlt().solve(b_);
+
+    } else {
+
+//        TicToc t_Hmminv;
+        // step1: schur marginalization --> Hpp, bpp
+        int reserve_size = ordering_poses_;
+        int marg_size = ordering_landmarks_;
+        MatXX Hmm = Hessian_.block(reserve_size, reserve_size, marg_size, marg_size);
+        MatXX Hpm = Hessian_.block(0, reserve_size, reserve_size, marg_size);
+        MatXX Hmp = Hessian_.block(reserve_size, 0, marg_size, reserve_size);
+        VecX bpp = b_.segment(0, reserve_size);
+        VecX bmm = b_.segment(reserve_size, marg_size);
+
+        // Hmm 是对角线矩阵，它的求逆可以直接为对角线块分别求逆，如果是逆深度，对角线块为1维的，则直接为对角线的倒数，这里可以加速
+        MatXX Hmm_inv(MatXX::Zero(marg_size, marg_size));
+        // TODO:: use openMP
+        for (auto landmarkVertex : idx_landmark_vertices_) {
+            int idx = landmarkVertex.second->OrderingId() - reserve_size;
+            int size = landmarkVertex.second->LocalDimension();
+            Hmm_inv.block(idx, idx, size, size) = Hmm.block(idx, idx, size, size).inverse();
+        }
+
+        MatXX tempH = Hpm * Hmm_inv;
+        H_pp_schur_ = Hessian_.block(0, 0, ordering_poses_, ordering_poses_) - tempH * Hmp;
+        b_pp_schur_ = bpp - tempH * bmm;
+
+        // step2: solve Hpp * delta_x = bpp
+        VecX delta_x_pp(VecX::Zero(reserve_size));
+
+        // TicToc t_linearsolver;
+        delta_x_pp =  H_pp_schur_.ldlt().solve(b_pp_schur_);//  SVec.asDiagonal() * svd.matrixV() * Ub;
+        delta_x_.head(reserve_size) = delta_x_pp;
+        // std::cout << " Linear Solver Time Cost: " << t_linearsolver.toc() << std::endl;
+
+        // step3: solve Hmm * delta_x = bmm - Hmp * delta_x_pp;
+        VecX delta_x_ll(marg_size);
+        delta_x_ll = Hmm_inv * (bmm - Hmp * delta_x_pp);
+        delta_x_.tail(marg_size) = delta_x_ll;
+
+//        std::cout << "schur time cost: "<< t_Hmminv.toc()<<std::endl;
+    }
+
+    // compute dog-leg step
+    // sd: The steepest descent method
+    // gn: The Gauss-Newton method
+    step_sd_ = (b_.squaredNorm()) / (b_.transpose() * Hessian_ * b_);
+    delta_x_sd_ = step_sd_ * b_;
+    beta_ = 0.0;
+    delta_x_gn_ = delta_x_;
+    if (delta_x_gn_.norm() >= dogleg_radius_) {
+        if (delta_x_sd_.norm() >= dogleg_radius_) {
+            delta_x_ = delta_x_sd_ * (dogleg_radius_ / delta_x_sd_.norm());
+        } else {
+            const VecX& a = delta_x_sd_;
+            const VecX& b = delta_x_gn_;
+            VecX b_a = b - a;
+            double c = a.transpose() * b_a;
+            beta_ = (sqrt(c * c + b_a.squaredNorm() * (dogleg_radius_ * dogleg_radius_ - a.squaredNorm())) - c) /b_a.squaredNorm();
+            delta_x_ = delta_x_sd_ + beta_ * (delta_x_gn_ - delta_x_sd_);
+        }
+    }
 }
 
 void Problem::UpdateStates() {
@@ -494,6 +565,8 @@ void Problem::RollbackStates() {
 }
 
 /// LM
+
+/*
 void Problem::ComputeLambdaInitLM() {
     ni_ = 2.;
     currentLambda_ = -1.;
@@ -520,6 +593,36 @@ void Problem::ComputeLambdaInitLM() {
     currentLambda_ = tau * maxDiagonal;
 //        std::cout << "currentLamba_: "<<maxDiagonal<<" "<<currentLambda_<<std::endl;
 }
+*/
+
+/*
+void Problem::ComputeLambdaInitLM() {
+    currentChi_ = 0.0;
+    currentLambda_ = 1e3;
+    for (auto edge: edges_) {
+        currentChi_ += edge.second->RobustChi2();
+    }
+    if (err_prior_.rows() > 0)
+        currentChi_ += err_prior_.squaredNorm();
+    currentChi_ *= 0.5;
+
+    stopThresholdLM_ = 1e-10 * currentChi_;          // 迭代条件为 误差下降 1e-6 倍
+}
+*/
+
+void Problem::ComputeLambdaInitLM() {
+    // dog-leg
+    dogleg_radius_ = 1.0;
+    currentChi_ = 0.0;
+    for (auto edge: edges_) {
+        currentChi_ += edge.second->RobustChi2();
+    }
+    if (err_prior_.rows() > 0)
+        currentChi_ += err_prior_.squaredNorm();
+    currentChi_ *= 0.5;
+
+    stopThresholdLM_ = 1e-10 * currentChi_;          // 迭代条件为 误差下降 1e-6 倍
+}
 
 void Problem::AddLambdatoHessianLM() {
     ulong size = Hessian_.cols();
@@ -538,6 +641,7 @@ void Problem::RemoveLambdaHessianLM() {
     }
 }
 
+/*
 bool Problem::IsGoodStepInLM() {
     double scale = 0;
 //    scale = 0.5 * delta_x_.transpose() * (currentLambda_ * delta_x_ + b_);
@@ -568,6 +672,73 @@ bool Problem::IsGoodStepInLM() {
     } else {
         currentLambda_ *= ni_;
         ni_ *= 2;
+        return false;
+    }
+}
+*/
+
+/*
+bool Problem::IsGoodStepInLM() {
+    double tempChi = 0.0;
+    for (auto edge: edges_) {
+        edge.second->ComputeResidual();
+        tempChi += edge.second->RobustChi2();
+    }
+    if (err_prior_.size() > 0)
+        tempChi += err_prior_.squaredNorm();
+    tempChi *= 0.5;          // 1/2 * err^2
+
+    int size = Hessian_.cols();
+    MatXX diag_hessian(MatXX::Zero(size, size));
+    for (int i = 0; i < size; i++) {
+        diag_hessian(i, i) = Hessian_(i, i);
+    }
+    double scale = delta_x_.transpose() * (currentLambda_ * diag_hessian * delta_x_ + b_);
+    scale += 1e-6;    // make sure it's non-zero
+    double rho = (currentChi_ - tempChi) / scale;
+    double epsilon = 0;
+    double L_down = 9.0;
+    double L_up = 11.0;
+    if (rho > epsilon && isfinite(tempChi)) {
+        currentLambda_ = std::max(currentLambda_ / L_down, 1e-7);
+        currentChi_ = tempChi;
+        return true;
+    } else {
+        currentLambda_ = std::min(currentLambda_ * L_up, 1e7);
+        return false;
+    }
+}
+*/
+
+bool Problem::IsGoodStepInLM() {
+    double tempChi = 0.0;
+    for (auto edge: edges_) {
+        edge.second->ComputeResidual();
+        tempChi += edge.second->RobustChi2();
+    }
+    if (err_prior_.size() > 0)
+        tempChi += err_prior_.squaredNorm();
+    tempChi *= 0.5;          // 1/2 * err^2
+
+    //compute scale
+    double scale = 0;
+    if (delta_x_gn_.norm() <= dogleg_radius_) {
+        scale = currentChi_;
+    } else if (delta_x_sd_.norm() >= dogleg_radius_) {
+        scale = dogleg_radius_ * (2.0 * step_sd_ * b_.norm() - dogleg_radius_) / (2.0 * step_sd_);
+    } else {
+        scale = step_sd_ * (1 - beta_) * (1 - beta_) * b_.squaredNorm() / 2.0 + beta_ * (2.0 - beta_) * currentChi_;
+    }
+    double rho = (currentChi_ - tempChi) / scale;
+    if (rho > 0) {
+        currentChi_ = tempChi;
+        if (rho > 0.75) {
+            dogleg_radius_ = std::max(dogleg_radius_, 3.0 * delta_x_.norm());
+        } else if (rho < 0.25) {
+            dogleg_radius_ /= 2.0;
+        }
+        return true;
+    } else {
         return false;
     }
 }

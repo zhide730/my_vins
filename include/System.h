@@ -27,7 +27,7 @@ struct IMU_MSG
 };
 typedef std::shared_ptr<IMU_MSG const> ImuConstPtr;
 
-//image for vio    
+//image for vio
 struct IMG_MSG {
     double header;
     vector<Vector3d> points;
@@ -38,7 +38,7 @@ struct IMG_MSG {
     vector<float> velocity_y_of_point;
 };
 typedef std::shared_ptr <IMG_MSG const > ImgConstPtr;
-    
+
 class System
 {
 public:
@@ -48,20 +48,20 @@ public:
 
     void PubImageData(double dStampSec, cv::Mat &img);
 
-    void PubImuData(double dStampSec, const Eigen::Vector3d &vGyr, 
+    void PubImuData(double dStampSec, const Eigen::Vector3d &vGyr,
         const Eigen::Vector3d &vAcc);
 
     // thread: visual-inertial odometry
     void ProcessBackEnd();
     void Draw();
-    
+
     pangolin::OpenGlRenderState s_cam;
     pangolin::View d_cam;
 
     FeatureTracker trackerData[NUM_OF_CAM];
 
 #ifdef __APPLE__
-    void InitDrawGL(); 
+    void InitDrawGL();
     void DrawGLFrame();
 #endif
 
@@ -108,8 +108,9 @@ private:
     bool init_imu = 1;
     double last_imu_t = 0;
     std::ofstream ofs_pose;
+    std::ofstream ofs_time;
     std::vector<Eigen::Vector3d> vPath_to_draw;
     bool bStart_backend;
     std::vector<std::pair<std::vector<ImuConstPtr>, ImgConstPtr>> getMeasurements();
-    
+
 };

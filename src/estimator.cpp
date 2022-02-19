@@ -24,7 +24,7 @@ Estimator::Estimator() : f_manager{Rs}
         it.second.pre_integration = nullptr;
     }
     tmp_pre_integration = nullptr;
-    
+
     clearState();
 }
 
@@ -88,9 +88,9 @@ void Estimator::clearState()
 
     if (tmp_pre_integration != nullptr)
         delete tmp_pre_integration;
-    
+
     tmp_pre_integration = nullptr;
-    
+
     last_marginalization_parameter_blocks.clear();
 
     f_manager.clearState();
@@ -191,7 +191,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             if (result)
             {
                 solver_flag = NON_LINEAR;
-                solveOdometry();
+                solveOdometry();//根据IMU和vo做里程计
                 slideWindow();
                 f_manager.removeFailures();
                 cout << "Initialization finish!" << endl;
@@ -497,7 +497,7 @@ void Estimator::solveOdometry()
     {
         TicToc t_tri;
         f_manager.triangulate(Ps, tic, ric);
-        //cout << "triangulation costs : " << t_tri.toc() << endl;        
+        //cout << "triangulation costs : " << t_tri.toc() << endl;
         backendOptimization();
     }
 }
@@ -1079,7 +1079,7 @@ void Estimator::backendOptimization()
     vector2double();
     // 构建求解器
     problemSolve();
-    // 优化后的变量处理下自由度
+    // 优化后的变量处理下自由度，消除漂移
     double2vector();
     //ROS_INFO("whole time for solver: %f", t_solver.toc());
 
@@ -1137,7 +1137,7 @@ void Estimator::backendOptimization()
             }
         }
     }
-    
+
 }
 
 

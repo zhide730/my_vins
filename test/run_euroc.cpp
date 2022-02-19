@@ -11,14 +11,14 @@
 #include <opencv2/opencv.hpp>
 #include <highgui.h>
 #include <eigen3/Eigen/Dense>
-#include "System.h"
+#include "../include/System.h"
 
 using namespace std;
 using namespace cv;
 using namespace Eigen;
 
 const int nDelayTimes = 2;
-string sData_path = "/home/dataset/EuRoC/MH-05/mav0/";
+string sData_path = "/home/zzd/Dataset/euroc/MH-05/mav0/";
 string sConfig_path = "../config/";
 
 std::shared_ptr<System> pSystem;
@@ -67,7 +67,7 @@ void PubImageData()
 	std::string sImage_line;
 	double dStampNSec;
 	string sImgFileName;
-	
+
 	// cv::namedWindow("SOURCE IMAGE", CV_WINDOW_AUTOSIZE);
 	while (std::getline(fsImage, sImage_line) && !sImage_line.empty())
 	{
@@ -144,14 +144,14 @@ void DrawIMGandGLinMainThrd(){
 	}
 	fsImage.close();
 
-} 
+}
 #endif
 
 int main(int argc, char **argv)
 {
 	if(argc != 3)
 	{
-		cerr << "./run_euroc PATH_TO_FOLDER/MH-05/mav0 PATH_TO_CONFIG/config \n" 
+		cerr << "./run_euroc PATH_TO_FOLDER/MH-05/mav0 PATH_TO_CONFIG/config \n"
 			<< "For example: ./run_euroc /home/stevencui/dataset/EuRoC/MH-05/mav0/ ../config/"<< endl;
 		return -1;
 	}
@@ -159,15 +159,15 @@ int main(int argc, char **argv)
 	sConfig_path = argv[2];
 
 	pSystem.reset(new System(sConfig_path));
-	
+
 	std::thread thd_BackEnd(&System::ProcessBackEnd, pSystem);
-		
+
 	// sleep(5);
 	std::thread thd_PubImuData(PubImuData);
 
 	std::thread thd_PubImageData(PubImageData);
 
-#ifdef __linux__	
+#ifdef __linux__
 	std::thread thd_Draw(&System::Draw, pSystem);
 #elif __APPLE__
 	DrawIMGandGLinMainThrd();
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
 	thd_PubImageData.join();
 
 	// thd_BackEnd.join();
-#ifdef __linux__	
+#ifdef __linux__
 	thd_Draw.join();
 #endif
 
